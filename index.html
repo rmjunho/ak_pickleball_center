@@ -21,7 +21,7 @@
              signInWithEmailAndPassword, signOut,
              onAuthStateChanged }                         from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
     import { getFirestore, doc, setDoc, getDoc,
-             updateDoc, collection, getDocs,
+             updateDoc, deleteDoc, collection, getDocs,
              query, where, onSnapshot,
              serverTimestamp }                            from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 
@@ -53,6 +53,20 @@
       // 교회 교인 목록 실시간
       watchChurch: (churchCode, cb) =>
         onSnapshot(query(collection(fbDb, 'users'), where('churchCode','==',churchCode)), cb),
+      // 전체 사용자 (관리자용)
+      getAllUsers: () => getDocs(collection(fbDb, 'users')),
+      // 교회별 사용자
+      getUsersByChurch: (churchCode) =>
+        getDocs(query(collection(fbDb, 'users'), where('churchCode','==',churchCode))),
+      // 챌린지 저장/삭제
+      setChallenge:    (id, data) => setDoc(doc(fbDb, 'challenges', id), data, { merge: true }),
+      deleteChallenge: (id)       => deleteDoc(doc(fbDb, 'challenges', id)),
+      // 교회별 챌린지 (공개+비공개)
+      getChallengesByChurch: (churchCode) =>
+        getDocs(query(collection(fbDb, 'challenges'), where('createdByChurch','==',churchCode))),
+      // 모든 공개 챌린지
+      getPublicChallenges: () =>
+        getDocs(query(collection(fbDb, 'challenges'), where('isPublic','==',true))),
     };
     window._fbReady = true;
     console.log('✅ Firebase 초기화 완료');
@@ -5063,6 +5077,7 @@ function switchTab(tab, label, el) {
   updateFloatToolbarVisibility();
   if (tab === 'chat')   initChatTab();
   if (tab === 'church') initChurchTab();
+  if (tab === 'challenge') syncChallengesFromFirestore(); // Firestore 동기화
 }
 
 // ================================================
@@ -7670,15 +7685,58 @@ function rejectChurchMember(userId) {
 
 // ── 교인 관리 (교역자: 자기 교회 / 관리자: 전체) ──
 function renderMembersScreen() {
-  const allUsers     = DB.get('users', []);
-  const myUsers      = me.isAppAdmin ? allUsers : allUsers.filter(u => u.church === me.church);
-  const minorPending = myUsers.filter(u => u.status === 'pending');
-  const churchPending= myUsers.filter(u => u.status !== 'pending' && u.churchStatus === 'pending');
-  const pending      = [...churchPending, ...minorPending];
-  const active       = myUsers.filter(u =>
+  setTimeout(loadMembersScreenData, 80);
+  return `<div id="members-screen-body" style="padding:40px 16px;text-align:center;color:var(--muted)">
+    <div style="font-size:28px;margin-bottom:12px">🔄</div>
+    <div style="font-size:13px">교인 목록 불러오는 중...</div>
+  </div>`;
+}
+
+async function loadMembersScreenData() {
+  const body = document.getElementById('members-screen-body');
+  if (!body) return;
+
+  let allUsers = [];
+  try {
+    if (window._fbReady && window._fb) {
+      if (me.isAppAdmin) {
+        // 관리자: 전체 사용자
+        const snap = await window._fb.getAllUsers();
+        snap.forEach(d => allUsers.push({ id: d.id, ...d.data() }));
+      } else if (me.churchCode) {
+        // 교인: 같은 교회만
+        const snap = await window._fb.getUsersByChurch(me.churchCode);
+        snap.forEach(d => allUsers.push({ id: d.id, ...d.data() }));
+      }
+    }
+  } catch(e) {
+    console.warn('Firestore 교인 로드 실패:', e);
+  }
+
+  // fallback
+  if (!allUsers.length) {
+    const localAll = DB.get('users', []);
+    allUsers = me.isAppAdmin ? localAll : localAll.filter(u => u.church === me.church);
+  }
+
+  // isAppAdmin 등 로컬 플래그 머지
+  const localUsers = DB.get('users', []);
+  allUsers = allUsers.map(u => {
+    const local = localUsers.find(l => l.id === u.id);
+    return local ? { ...u, ...local } : u;
+  });
+
+  body.outerHTML = renderMembersScreenHtml(allUsers);
+}
+
+function renderMembersScreenHtml(allUsers) {
+  const minorPending  = allUsers.filter(u => u.status === 'pending');
+  const churchPending = allUsers.filter(u => u.status !== 'pending' && u.churchStatus === 'pending');
+  const pending       = [...churchPending, ...minorPending];
+  const active        = allUsers.filter(u =>
     u.status !== 'pending' && u.status !== 'rejected' && u.churchStatus !== 'pending');
-  const roles        = ['목사','전도사','선교사','장로','권사','집사','간사','교인',
-                        '기관장','관리자','직원','기관 관계자','기타'];
+  const roles = ['목사','전도사','선교사','장로','권사','집사','간사','교인',
+                 '기관장','관리자','직원','기관 관계자','기타'];
 
   // 탭 헤더
   let html = `
@@ -7818,7 +7876,7 @@ function renderMembersScreen() {
     }
   }
   html += `</div>`;
-  return html;
+  return `<div id="members-screen-body">${html}</div>`;
 }
 
 // ── 교회 등록 승인/거절 (앱 관리자 전용) ──
@@ -7867,14 +7925,50 @@ function rejectChurchRegistration(code) {
 
 // ── 앱 관리자 패널 ──
 function renderAdminPanel() {
-  const allUsers      = DB.get('users', []);
+  // 즉시 로딩 상태 반환 후 Firestore 비동기 로드
+  setTimeout(loadAdminPanelData, 80);
+  return `<div id="admin-panel-body" style="padding:40px 16px;text-align:center;color:var(--muted)">
+    <div style="font-size:28px;margin-bottom:12px">🔄</div>
+    <div style="font-size:13px">사용자 데이터 불러오는 중...</div>
+  </div>`;
+}
+
+async function loadAdminPanelData() {
+  const body = document.getElementById('admin-panel-body');
+  if (!body) return;
+
+  let allUsers = [];
+
+  try {
+    if (window._fbReady && window._fb) {
+      const snap = await window._fb.getAllUsers();
+      snap.forEach(d => allUsers.push({ id: d.id, ...d.data() }));
+    }
+  } catch(e) {
+    console.warn('Firestore 사용자 로드 실패, localStorage 사용:', e);
+  }
+
+  // Firestore에 없으면 localStorage fallback
+  if (allUsers.length === 0) allUsers = DB.get('users', []);
+
+  // isAppAdmin 등 로컬 전용 필드 머지
+  const localUsers = DB.get('users', []);
+  allUsers = allUsers.map(u => {
+    const local = localUsers.find(l => l.id === u.id);
+    return local ? { ...u, ...local } : u;
+  });
+
+  body.outerHTML = renderAdminPanelHtml(allUsers);
+}
+
+function renderAdminPanelHtml(allUsers) {
   const pendingChurch = DB.get('pendingChurches', []);
   const minorPending  = allUsers.filter(u => u.status === 'pending');
   const churchJoinPen = allUsers.filter(u => u.status !== 'pending' && u.churchStatus === 'pending');
   const active        = allUsers.filter(u => u.status === 'active' || !u.status);
   const churches      = [...new Set(allUsers.map(u => u.church).filter(Boolean))];
 
-  let html = `
+  let html = `<div id="admin-panel-body">
     <div class="ss-section-title">📊 현황 요약</div>
     <div class="ss-card">
       <div class="ss-card-row">
@@ -7892,34 +7986,45 @@ function renderAdminPanel() {
       </div>
       <div class="ss-card-row">
         <div class="ss-card-icon">⏳</div>
-        <div class="ss-card-info"><div class="ss-card-title">미성년자 승인 대기</div><div class="ss-card-sub"></div></div>
+        <div class="ss-card-info"><div class="ss-card-title">미성년자 승인 대기</div></div>
         <span class="ss-card-badge ${minorPending.length > 0 ? 'ss-badge-gold' : 'ss-badge-gray'}">${minorPending.length}</span>
       </div>
     </div>`;
+
+  // 교회 가입 대기
+  if (churchJoinPen.length) {
+    html += `<div class="ss-section-title">🕐 교회 가입 승인 대기 (${churchJoinPen.length}명)</div><div class="ss-card">`;
+    churchJoinPen.forEach(u => {
+      html += `<div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+        <div style="font-size:14px;font-weight:700;margin-bottom:2px">${escHtml(u.name)}</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">${escHtml(u.church||'—')} · ${escHtml(u.email||'')}</div>
+        <div style="display:flex;gap:8px">
+          <button onclick="approveChurchJoin('${u.id}')"
+            style="flex:1;height:40px;border:none;border-radius:10px;background:var(--black);color:white;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">✅ 승인</button>
+          <button onclick="rejectChurchJoin('${u.id}')"
+            style="flex:1;height:40px;border:none;border-radius:10px;background:#FBE5E5;color:#C0392B;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">✕ 거절</button>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
 
   // 교회 등록 대기
   if (pendingChurch.length) {
     html += `<div class="ss-section-title">⛪ 교회 등록 승인 대기</div><div class="ss-card">`;
     pendingChurch.forEach(c => {
-      html += `
-        <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
-          <div style="font-size:15px;font-weight:800;letter-spacing:1px;margin-bottom:4px">${escHtml(c.name)}</div>
-          <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">
-            코드: <b>${escHtml(c.code)}</b> · 신청자: ${escHtml(c.requestedByName)} · ${(c.requestedAt||'').split('T')[0]}
-          </div>
-          <div style="display:flex;gap:8px">
-            <button onclick="approveChurchRegistration('${c.code}')"
-              style="flex:1;height:42px;border:none;border-radius:10px;background:var(--black);
-                     color:white;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">
-              ✅ 등록 승인
-            </button>
-            <button onclick="rejectChurchRegistration('${c.code}')"
-              style="flex:1;height:42px;border:none;border-radius:10px;background:#FBE5E5;
-                     color:#C0392B;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">
-              ✕ 거절
-            </button>
-          </div>
-        </div>`;
+      html += `<div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+        <div style="font-size:15px;font-weight:800;letter-spacing:1px;margin-bottom:4px">${escHtml(c.name)}</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">
+          코드: <b>${escHtml(c.code)}</b> · 신청자: ${escHtml(c.requestedByName)} · ${(c.requestedAt||'').split('T')[0]}
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="approveChurchRegistration('${c.code}')"
+            style="flex:1;height:42px;border:none;border-radius:10px;background:var(--black);color:white;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">✅ 등록 승인</button>
+          <button onclick="rejectChurchRegistration('${c.code}')"
+            style="flex:1;height:42px;border:none;border-radius:10px;background:#FBE5E5;color:#C0392B;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">✕ 거절</button>
+        </div>
+      </div>`;
     });
     html += `</div>`;
   }
@@ -7928,28 +8033,20 @@ function renderAdminPanel() {
   if (minorPending.length) {
     html += `<div class="ss-section-title">🧒 미성년자 승인 대기</div><div class="ss-card">`;
     minorPending.forEach(u => {
-      html += `
-        <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
-          <div style="font-size:14px;font-weight:700;margin-bottom:4px">
-            ${escHtml(u.name)}
-            <span style="font-size:12px;color:var(--muted);font-weight:400"> · ${escHtml(u.church||'교회 미지정')}</span>
-          </div>
-          <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">
-            보호자: ${escHtml(u.guardianName||'—')} / 📞 ${escHtml(u.guardianContact||'—')}
-          </div>
-          <div style="display:flex;gap:8px">
-            <button onclick="approveMinor('${u.id}')"
-              style="flex:1;height:40px;border:none;border-radius:10px;background:var(--black);
-                     color:white;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">
-              ✅ 승인
-            </button>
-            <button onclick="rejectMinor('${u.id}')"
-              style="flex:1;height:40px;border:none;border-radius:10px;background:#FBE5E5;
-                     color:#C0392B;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">
-              ✕ 거절
-            </button>
-          </div>
-        </div>`;
+      html += `<div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px">
+          ${escHtml(u.name)}<span style="font-size:12px;color:var(--muted);font-weight:400"> · ${escHtml(u.church||'교회 미지정')}</span>
+        </div>
+        <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">
+          보호자: ${escHtml(u.guardianName||'—')} / 📞 ${escHtml(u.guardianContact||'—')}
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="approveMinor('${u.id}')"
+            style="flex:1;height:40px;border:none;border-radius:10px;background:var(--black);color:white;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">✅ 승인</button>
+          <button onclick="rejectMinor('${u.id}')"
+            style="flex:1;height:40px;border:none;border-radius:10px;background:#FBE5E5;color:#C0392B;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">✕ 거절</button>
+        </div>
+      </div>`;
     });
     html += `</div>`;
   }
@@ -7960,12 +8057,12 @@ function renderAdminPanel() {
     html += `<div class="member-row">
       <div class="member-avatar">${u.isAppAdmin ? '🔑' : '🙏'}</div>
       <div class="member-info">
-        <div class="member-name">${escHtml(u.name)} ${u.isAppAdmin ? '<span style="color:#E63946;font-size:11px">관리자</span>' : ''}</div>
+        <div class="member-name">${escHtml(u.name||u.email||'이름 없음')} ${u.isAppAdmin ? '<span style="color:#E63946;font-size:11px">관리자</span>' : ''}</div>
         <div class="member-role">${escHtml(u.role||'교인')} · ${escHtml(u.church||'—')}</div>
       </div>
     </div>`;
   });
-  html += `</div>`;
+  html += `</div></div>`;
   return html;
 }
 
@@ -8114,6 +8211,46 @@ function allCustomChallenges() {
 }
 function saveAllCustomChallenges(list) { DB.set('allCustomChallenges', list); }
 
+// Firestore에서 챌린지 동기화 (챌린지 탭 열 때 호출)
+async function syncChallengesFromFirestore() {
+  if (!window._fbReady || !window._fb) return;
+  try {
+    const fetched = [];
+
+    // 내 교회 챌린지 (공개+비공개)
+    if (me.churchCode) {
+      const snap = await window._fb.getChallengesByChurch(me.churchCode);
+      snap.forEach(d => fetched.push({ id: d.id, ...d.data() }));
+    }
+
+    // 다른 교회 공개 챌린지
+    const pubSnap = await window._fb.getPublicChallenges();
+    pubSnap.forEach(d => {
+      const data = d.data();
+      // 내 교회 챌린지가 아닌 것만 추가 (중복 방지)
+      if (data.createdByChurch !== (me.church || '')) {
+        fetched.push({ id: d.id, ...data });
+      }
+    });
+
+    if (!fetched.length) return;
+
+    // localStorage와 머지 (Firestore 우선, 없는 것은 유지)
+    const local = DB.get('allCustomChallenges', []);
+    const localIds = local.map(c => c.id);
+    const fetchedIds = fetched.map(c => c.id);
+
+    // 로컬에만 있는 것 + Firestore 최신 데이터 합치기
+    const localOnly = local.filter(c => !fetchedIds.includes(c.id));
+    const merged = [...fetched, ...localOnly];
+
+    saveAllCustomChallenges(merged);
+    renderChallenge(); // 화면 갱신
+  } catch(e) {
+    console.warn('Firestore 챌린지 동기화 실패:', e);
+  }
+}
+
 // 내 교회 챌린지 (공개+비공개 모두)
 function customChallenges() {
   return allCustomChallenges().filter(c => c.createdByChurch === (me.church || ''));
@@ -8136,6 +8273,13 @@ function deleteChallenge(e, id) {
   if (!me.isAppAdmin) { toast('앱 관리자만 삭제할 수 있어요'); return; }
   const updated = allCustomChallenges().filter(c => c.id !== id);
   saveAllCustomChallenges(updated);
+
+  // Firestore에서도 삭제
+  if (window._fbReady && window._fb) {
+    window._fb.deleteChallenge(id)
+      .catch(e => console.warn('Firestore 챌린지 삭제 실패:', e));
+  }
+
   renderChallenge();
   toast('챌린지를 삭제했어요 🗑');
 }
@@ -8485,6 +8629,13 @@ function submitCreateChallenge() {
   const list = allCustomChallenges();
   list.push(newChallenge);
   saveAllCustomChallenges(list);
+
+  // Firestore에도 저장 (비동기, 실패해도 앱 동작에 영향 없음)
+  if (window._fbReady && window._fb) {
+    window._fb.setChallenge(newChallenge.id, newChallenge)
+      .catch(e => console.warn('Firestore 챌린지 저장 실패:', e));
+  }
+
   closeCreateChallengeModal();
   renderChallenge();
   const scope = _ccIsPublic ? '🌐 모든 교회 공개' : '🔒 우리 교회 비공개';
@@ -9328,16 +9479,28 @@ function renderMyChurch() {
       <div class="ss-empty-sub">메뉴 → 교회 정보에서 교회 코드를 등록해보세요</div>
     </div>`;
   }
+  // 즉시 로딩 후 비동기 렌더링
+  setTimeout(loadMyChurchData, 80);
+  return `<div id="my-church-body" style="padding:40px 16px;text-align:center;color:var(--muted)">
+    <div style="font-size:28px;margin-bottom:12px">🔄</div>
+    <div style="font-size:13px">교회 정보 불러오는 중...</div>
+  </div>`;
+}
 
-  const allUsers   = DB.get('users', []);
-  const members    = allUsers.filter(u =>
-    u.church === me.church && u.status !== 'pending' && u.churchStatus !== 'pending'
-  );
-  const events     = DB.get(getChurchEventsKey(), []);
-  const myChals    = customChallenges(); // 우리 교회가 만든 챌린지 (공개+비공개 모두)
+async function loadMyChurchData() {
+  const body = document.getElementById('my-church-body');
+  if (!body) return;
+
+  // Firestore에서 교인 로드 (기존 _loadChurchMembers 재사용)
+  const members = await _loadChurchMembers();
+
+  const events  = DB.get(getChurchEventsKey(), []);
+  const myChals = customChallenges();
+
+  let html = `<div id="my-church-body">`;
 
   // ── 교회 정보 헤더 ──
-  let html = `
+  html += `
     <div style="background:var(--black);padding:20px 18px;text-align:center">
       <div style="font-size:36px;margin-bottom:8px">⛪</div>
       <div style="font-size:20px;font-weight:800;color:white;margin-bottom:4px">${escHtml(me.church)}</div>
@@ -9355,7 +9518,6 @@ function renderMyChurch() {
       ${isLeader() ? `<span style="font-size:12px;color:var(--muted);cursor:pointer;font-weight:600"
         onclick="openCreateChallengeModal()">+ 만들기</span>` : ''}
     </div>`;
-
   if (!myChals.length) {
     html += `<div style="padding:16px 18px;text-align:center;color:var(--muted);font-size:13px">
       ${isLeader() ? '아직 챌린지가 없어요. 위 + 만들기로 추가해보세요!' : '아직 등록된 챌린지가 없어요'}
@@ -9394,7 +9556,6 @@ function renderMyChurch() {
       <span style="font-size:12px;color:var(--muted);cursor:pointer;font-weight:600"
         onclick="openSubscreen('event-browse')">전체보기 ›</span>
     </div>`;
-
   if (!events.length) {
     html += `<div style="padding:16px 18px;text-align:center;color:var(--muted);font-size:13px">등록된 행사가 없어요</div>`;
   } else {
@@ -9425,7 +9586,6 @@ function renderMyChurch() {
         onclick="openSubscreen('members');closeSideMenu()">관리 ›</span>` : ''}
     </div>
     <div class="ss-card" style="margin:0 16px 24px">`;
-
   if (!members.length) {
     html += `<div style="padding:14px;text-align:center;color:var(--muted);font-size:13px">교인이 없어요</div>`;
   } else {
@@ -9447,11 +9607,14 @@ function renderMyChurch() {
       html += `<div style="padding:10px 16px;text-align:center;font-size:13px;color:var(--muted)">외 ${members.length-4}명 더 있어요</div>`;
     }
   }
-  html += `</div>`;
-  return html;
+  html += `</div></div>`;
+
+  body.outerHTML = html;
 }
 
+
 // ── 교회 탭 초기화 ──
+
 function initChurchTab() {
   const cx = document.getElementById('church-box-title');
   if (cx) cx.textContent = me.church || '';
@@ -9461,39 +9624,67 @@ function initChurchTab() {
 function renderChurchMembers() {
   const el      = document.getElementById('church-members-list');
   const countEl = document.getElementById('church-member-count');
-  const allBtn  = document.getElementById('see-all-members-btn');
   if (!el) return;
-  const members = DB.get('users', []).filter(u =>
-    u.church === me.church &&
-    u.status !== 'pending' && u.status !== 'rejected' &&
-    u.churchStatus !== 'pending'
-  );
-  if (countEl) countEl.textContent = `${members.length}명`;
-  if (allBtn)  allBtn.style.display = members.length > 5 ? 'block' : 'none';
-  const show = members.slice(0, 5);
-  if (!show.length) {
-    el.innerHTML = `<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">
-      ${me.church ? '아직 등록된 교인이 없어요' : '교회 코드를 등록하면 교인을 볼 수 있어요'}</div>`;
-    return;
-  }
-  el.innerHTML = show.map(u => {
-    const photo = DB.get('profilePhoto_' + u.id, null);
-    const isMe  = u.id === me.id;
-    const avatar= photo
-      ? `<img src="${photo}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
-      : '👤';
-    return `
-      <div class="member-row">
+
+  // 즉시 로딩 표시
+  el.innerHTML = `<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">🔄 교인 목록 불러오는 중...</div>`;
+
+  // Firestore 비동기 로드
+  _loadChurchMembers().then(members => {
+    if (countEl) countEl.textContent = `${members.length}명`;
+    const allBtn = document.getElementById('see-all-members-btn');
+    if (allBtn) allBtn.style.display = members.length > 5 ? 'block' : 'none';
+    const show = members.slice(0, 5);
+    if (!show.length) {
+      el.innerHTML = `<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">
+        ${me.church ? '아직 등록된 교인이 없어요' : '교회 코드를 등록하면 교인을 볼 수 있어요'}</div>`;
+      return;
+    }
+    el.innerHTML = show.map(u => {
+      const photo = DB.get('profilePhoto_' + u.id, null);
+      const isMe  = u.id === me.id;
+      const avatar= photo
+        ? `<img src="${photo}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
+        : '👤';
+      return `<div class="member-row">
         <div class="member-avatar" style="overflow:hidden">
-          ${avatar}
-          ${isMe ? '<div class="online-dot"></div>' : ''}
+          ${avatar}${isMe ? '<div class="online-dot"></div>' : ''}
         </div>
         <div class="member-info">
-          <div class="member-name">${escHtml(u.name)}${isMe?'  <span style="font-size:11px;color:var(--gold)">(나)</span>':''}</div>
+          <div class="member-name">${escHtml(u.name)}${isMe ? '  <span style="font-size:11px;color:var(--gold)">(나)</span>' : ''}</div>
           <div class="member-role">${escHtml(u.role||'교인')}</div>
         </div>
       </div>`;
-  }).join('');
+    }).join('');
+  });
+}
+
+// Firestore에서 같은 교회 교인 로드 (localStorage fallback 포함)
+async function _loadChurchMembers() {
+  if (!me.church && !me.churchCode) return [];
+  let members = [];
+  try {
+    if (window._fbReady && window._fb && me.churchCode) {
+      const snap = await window._fb.getUsersByChurch(me.churchCode);
+      snap.forEach(d => {
+        const data = d.data();
+        if (data.churchStatus !== 'pending' && data.status !== 'rejected') {
+          members.push({ id: d.id, ...data });
+        }
+      });
+    }
+  } catch(e) {
+    console.warn('Firestore 교인 로드 실패:', e);
+  }
+  // Firestore 데이터 없으면 localStorage fallback
+  if (!members.length) {
+    members = DB.get('users', []).filter(u =>
+      u.church === me.church &&
+      u.status !== 'pending' && u.status !== 'rejected' &&
+      u.churchStatus !== 'pending'
+    );
+  }
+  return members;
 }
 
 // ── 행사 티켓팅 ──
