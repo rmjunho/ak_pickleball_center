@@ -67,6 +67,12 @@
       // 모든 공개 챌린지
       getPublicChallenges: () =>
         getDocs(query(collection(fbDb, 'challenges'), where('isPublic','==',true))),
+      // 바인더 공유 (리더 열람용)
+      setBinderEntry:  (key, data) => setDoc(doc(fbDb, 'binderEntries', key), data, { merge: true }),
+      getBinderEntry:  (key)       => getDoc(doc(fbDb, 'binderEntries', key)),
+      // 교회 상세 정보 (위치, 소개, 목사 프로필)
+      setChurchInfo:   (code, data) => setDoc(doc(fbDb, 'churchInfo', code), data, { merge: true }),
+      getChurchInfo:   (code)       => getDoc(doc(fbDb, 'churchInfo', code)),
     };
     window._fbReady = true;
     console.log('✅ Firebase 초기화 완료');
@@ -4472,6 +4478,25 @@
         <button class="btn-cancel" onclick="closeProfileEdit()">취소</button>
         <button class="btn-confirm" onclick="saveProfileEdit()">저장하기</button>
       </div>
+
+      <!-- 계정 정보 변경 (구분선) -->
+      <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:16px">
+        <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:12px;letter-spacing:0.5px">🔐 계정 정보 변경</div>
+        <div class="form-group">
+          <label class="form-label">새 이메일</label>
+          <input id="edit-email" type="email" class="form-input" placeholder="변경할 이메일 입력 (선택)">
+        </div>
+        <div class="form-group">
+          <label class="form-label">새 비밀번호</label>
+          <input id="edit-pw" type="password" class="form-input" placeholder="변경할 비밀번호 입력 (선택, 6자 이상)">
+        </div>
+        <div class="form-group">
+          <label class="form-label">현재 비밀번호 <span style="color:#E63946;font-size:11px">이메일/비밀번호 변경 시 필수</span></label>
+          <input id="edit-current-pw" type="password" class="form-input" placeholder="현재 비밀번호 확인">
+        </div>
+        <button class="btn-confirm" style="width:100%;background:var(--cream3);color:var(--black)"
+          onclick="saveAccountEdit()">계정 정보 변경하기</button>
+      </div>
     </div>
   </div>
 
@@ -4507,6 +4532,66 @@
   <!-- ============================================
        APPOINT LEADER MODAL (리더 임명)
   ============================================= -->
+  <!-- ============================================
+       CREATE CHURCH MODAL (새 교회 만들기)
+  ============================================= -->
+  <div class="modal-backdrop" id="modal-create-church" onclick="closeCreateChurchModal(event)">
+    <div class="modal-sheet">
+      <div class="modal-title">⛪ 새 교회 만들기</div>
+      <div class="form-group">
+        <label class="form-label">교회/기관명</label>
+        <input id="nc-name" type="text" class="form-input" placeholder="예: 스마트처치">
+      </div>
+      <div class="form-group">
+        <label class="form-label">교회 코드 <span style="font-weight:400;font-size:11.5px;color:var(--muted)">영문+숫자, 4~8자</span></label>
+        <input id="nc-code" type="text" class="form-input" placeholder="예: SC0002"
+               style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')">
+      </div>
+      <div class="form-group">
+        <label class="form-label">유형</label>
+        <select id="nc-type" class="form-select">
+          <option value="church">⛪ 교회</option>
+          <option value="org">🏢 기관/단체</option>
+          <option value="camp">🏕 캠프</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeCreateChurchModal()">취소</button>
+        <button class="btn-confirm" onclick="submitCreateChurch()">만들기</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modal-church-info-edit" onclick="closeChurchInfoEdit(event)">
+    <div class="modal-sheet" style="max-height:90vh;overflow-y:auto">
+      <div class="modal-title">⛪ 교회 정보 편집</div>
+      <div class="form-group">
+        <label class="form-label">📍 교회 주소</label>
+        <input id="ci-address" type="text" class="form-input" placeholder="예: 경기도 안성시 ○○동 ○○번지">
+      </div>
+      <div class="form-group">
+        <label class="form-label">📝 교회 소개 <span style="font-weight:400;font-size:11.5px;color:var(--muted)">선택</span></label>
+        <textarea id="ci-description" class="qt-ta" rows="4"
+          placeholder="교회 비전, 역사, 분위기 등을 소개해보세요"
+          style="resize:none"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">👨‍⚕️ 담임 목사 이름 <span style="font-weight:400;font-size:11.5px;color:var(--muted)">선택</span></label>
+        <input id="ci-pastor-name" type="text" class="form-input" placeholder="예: 홍길동">
+      </div>
+      <div class="form-group">
+        <label class="form-label">목사 소개 <span style="font-weight:400;font-size:11.5px;color:var(--muted)">선택</span></label>
+        <textarea id="ci-pastor-bio" class="qt-ta" rows="3"
+          placeholder="목사님 약력, 메시지 등을 입력해보세요"
+          style="resize:none"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeChurchInfoEdit()">취소</button>
+        <button class="btn-confirm" onclick="saveChurchInfoEdit()">저장하기</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-backdrop" id="modal-appoint-leader" onclick="closeAppointModal(event)">
     <div class="modal-sheet">
       <div class="modal-title">리더 임명 ✨</div>
@@ -5308,9 +5393,26 @@ function readBinder() {
 
 function saveBinderNow() {
   if (!me) return;
-  // 기존에 저장된 그림(drawing)/사진(photo) 데이터를 덮어쓰지 않도록 병합 저장
   const existing = DB.get(binderKey(), {});
-  DB.set(binderKey(), Object.assign({}, existing, readBinder()));
+  const merged   = Object.assign({}, existing, readBinder());
+  DB.set(binderKey(), merged);
+
+  // 공유 허용한 경우 Firestore에도 동기화 (텍스트 데이터만)
+  if (me.binderShareEnabled && window._fbReady && window._fb) {
+    const firestoreData = {
+      userId:    me.id,
+      userName:  me.name,
+      church:    me.church || '',
+      date:      dateKey(),
+      qt:        merged.qt       || '',
+      diary:     merged.diary    || '',
+      schedule:  merged.schedule || '',
+      todos:     (merged.todos   || []).map(t => ({ text: t.text || '', done: !!t.done })),
+      updatedAt: new Date().toISOString()
+    };
+    window._fb.setBinderEntry(`${me.id}_${dateKey()}`, firestoreData)
+      .catch(e => console.warn('바인더 Firestore 동기화 실패:', e));
+  }
 }
 
 function autoSave(section) {
@@ -7624,19 +7726,30 @@ function renderChurchInfo() {
         ? `<span style="color:#E67E22;font-size:11.5px;font-weight:700;background:rgba(230,126,34,0.1);border-radius:6px;padding:2px 7px">⏳ 승인 대기 중</span>`
         : `<span style="color:#27AE60;font-size:11.5px;font-weight:700;background:rgba(39,174,96,0.1);border-radius:6px;padding:2px 7px">✅ 정식 교인</span>`)
     : '';
-  return `
-    <div class="ss-section-title">현재 소속</div>
+
+  const editBtn = isLeader()
+    ? `<button onclick="openChurchInfoEdit()" style="height:30px;padding:0 12px;border-radius:8px;
+        border:1.5px solid var(--border);background:white;font-size:12px;font-weight:600;
+        cursor:pointer;font-family:inherit;color:var(--muted)">✏️ 편집</button>`
+    : '';
+
+  let html = `
+    <div class="ss-section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>현재 소속</span>${editBtn}
+    </div>
     <div class="ss-card">
       <div class="ss-card-row">
         <div class="ss-card-icon">⛪</div>
         <div class="ss-card-info">
           <div class="ss-card-title">${escHtml(me.church || '소속 없음')}</div>
           <div class="ss-card-sub" style="display:flex;align-items:center;gap:6px;margin-top:4px">
-            코드: ${escHtml(me.churchCode || '—')}
-            ${statusBadge}
+            코드: ${escHtml(me.churchCode || '—')} ${statusBadge}
           </div>
         </div>
       </div>
+    </div>
+    <div id="church-detail-body">
+      <div style="padding:24px 16px;text-align:center;color:var(--muted);font-size:13px">🔄 교회 정보 불러오는 중...</div>
     </div>
     <div class="ss-section-title">교회 코드 변경</div>
     <div class="ss-card">
@@ -7649,11 +7762,149 @@ function renderChurchInfo() {
         </div>
         <button class="btn-confirm" style="width:100%" onclick="changeChurchCode()">교회 변경하기</button>
         <div style="font-size:12px;color:var(--muted);margin-top:10px;text-align:center;line-height:1.6">
-          교회에서 받은 코드를 입력하세요<br>
-          변경 후 리더 승인을 받아야 정식 교인이 돼요
+          교회에서 받은 코드를 입력하세요<br>변경 후 리더 승인을 받아야 정식 교인이 돼요
         </div>
       </div>
     </div>`;
+
+  // 비동기로 교회 상세 정보 로드
+  if (me.churchCode) setTimeout(() => _loadChurchDetail(), 80);
+  return html;
+}
+
+async function _loadChurchDetail() {
+  const body = document.getElementById('church-detail-body');
+  if (!body || !me.churchCode) return;
+
+  let info = {};
+  try {
+    if (window._fbReady && window._fb) {
+      const snap = await window._fb.getChurchInfo(me.churchCode);
+      if (snap.exists()) info = snap.data();
+    }
+  } catch(e) { console.warn('교회 정보 로드 실패:', e); }
+
+  const { address = '', description = '', pastorName = '', pastorBio = '' } = info;
+
+  if (!address && !description && !pastorName) {
+    body.innerHTML = isLeader()
+      ? `<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">
+           ✏️ 위 편집 버튼으로 교회 정보를 등록해보세요!</div>`
+      : '';
+    return;
+  }
+
+  let html = '';
+  if (description) html += `
+    <div class="ss-section-title">📝 교회 소개</div>
+    <div class="ss-card"><div style="padding:16px;font-size:13.5px;color:var(--black);line-height:1.8;white-space:pre-wrap">${escHtml(description)}</div></div>`;
+
+  if (address) html += `
+    <div class="ss-section-title">📍 교회 위치</div>
+    <div class="ss-card">
+      <div class="ss-card-row" onclick="window.open('https://map.kakao.com/?q=${encodeURIComponent(address)}','_blank')" style="cursor:pointer">
+        <div class="ss-card-icon">📍</div>
+        <div class="ss-card-info">
+          <div class="ss-card-title">${escHtml(address)}</div>
+          <div class="ss-card-sub" style="color:var(--gold)">카카오맵으로 보기 →</div>
+        </div>
+      </div>
+    </div>`;
+
+  if (pastorName) html += `
+    <div class="ss-section-title">👨‍⚕️ 담임 목사</div>
+    <div class="ss-card">
+      <div style="padding:16px">
+        <div style="font-size:16px;font-weight:800;color:var(--black);margin-bottom:6px">목사 ${escHtml(pastorName)}</div>
+        ${pastorBio ? `<div style="font-size:13.5px;color:var(--muted);line-height:1.8;white-space:pre-wrap">${escHtml(pastorBio)}</div>` : ''}
+      </div>
+    </div>`;
+
+  body.innerHTML = html;
+}
+
+function openCreateChurchModal() {
+  document.getElementById('nc-name').value = '';
+  document.getElementById('nc-code').value = '';
+  document.getElementById('nc-type').value = 'church';
+  document.getElementById('modal-create-church').classList.add('open');
+}
+function closeCreateChurchModal(e) {
+  if (!e || e.target.id === 'modal-create-church')
+    document.getElementById('modal-create-church')?.classList.remove('open');
+}
+function submitCreateChurch() {
+  const name = document.getElementById('nc-name').value.trim();
+  const code = document.getElementById('nc-code').value.trim().toUpperCase();
+  const type = document.getElementById('nc-type').value;
+  if (!name) { toast('교회명을 입력해 주세요'); return; }
+  if (!code || code.length < 4) { toast('코드는 4자 이상 영문+숫자로 입력해 주세요'); return; }
+
+  const customChurches = DB.get('customChurches', {});
+  const OB = { 'AK0001': 'AK 훈련센터', 'SC0001': '스마트처치' };
+  if (customChurches[code] || OB[code]) { toast('이미 사용 중인 코드예요'); return; }
+
+  // localStorage 저장
+  customChurches[code] = name;
+  DB.set('customChurches', customChurches);
+
+  // Firestore에도 저장
+  if (window._fbReady && window._fb) {
+    window._fb.setChurchInfo(code, {
+      name, code, type,
+      createdBy:  me.name,
+      createdAt:  new Date().toISOString()
+    }).catch(e => console.warn('Firestore 교회 저장 실패:', e));
+  }
+
+  closeCreateChurchModal();
+  toast(`✅ "${name}" 교회가 만들어졌어요! 코드: ${code}`);
+  openSubscreen('admin-panel'); // 패널 새로고침
+}
+
+function openChurchInfoEdit() {
+  if (!isLeader()) { toast('리더만 수정할 수 있어요'); return; }
+  // 기존 데이터 로드 후 모달 열기
+  const modal = document.getElementById('modal-church-info-edit');
+  if (!modal) return;
+  if (window._fbReady && window._fb && me.churchCode) {
+    window._fb.getChurchInfo(me.churchCode).then(snap => {
+      const d = snap.exists() ? snap.data() : {};
+      document.getElementById('ci-address').value     = d.address     || '';
+      document.getElementById('ci-description').value = d.description || '';
+      document.getElementById('ci-pastor-name').value = d.pastorName  || '';
+      document.getElementById('ci-pastor-bio').value  = d.pastorBio   || '';
+    }).catch(() => {});
+  }
+  modal.classList.add('open');
+}
+
+function closeChurchInfoEdit(e) {
+  if (!e || e.target.id === 'modal-church-info-edit')
+    document.getElementById('modal-church-info-edit')?.classList.remove('open');
+}
+
+function saveChurchInfoEdit() {
+  if (!isLeader() || !me.churchCode) return;
+  const data = {
+    address:     document.getElementById('ci-address').value.trim(),
+    description: document.getElementById('ci-description').value.trim(),
+    pastorName:  document.getElementById('ci-pastor-name').value.trim(),
+    pastorBio:   document.getElementById('ci-pastor-bio').value.trim(),
+    updatedBy:   me.name,
+    updatedAt:   new Date().toISOString()
+  };
+  if (window._fbReady && window._fb) {
+    window._fb.setChurchInfo(me.churchCode, data)
+      .then(() => {
+        toast('✅ 교회 정보를 저장했어요!');
+        closeChurchInfoEdit();
+        openSubscreen('church-info'); // 새로고침
+      })
+      .catch(e => { console.error(e); toast('저장 실패. 다시 시도해주세요'); });
+  } else {
+    toast('Firebase 연결 필요');
+  }
 }
 
 // ── 교회 가입 승인/거절 ──
@@ -8051,8 +8302,30 @@ function renderAdminPanelHtml(allUsers) {
     html += `</div>`;
   }
 
-  // 전체 사용자 목록
-  html += `<div class="ss-section-title">👥 전체 사용자 (${active.length}명)</div><div class="ss-card">`;
+  // 새 교회 만들기 (관리자 전용)
+  html += `<div class="ss-section-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>⛪ 교회 관리</span>
+    <span style="font-size:12px;color:var(--muted);cursor:pointer;font-weight:600"
+      onclick="openCreateChurchModal()">+ 새 교회 만들기</span>
+  </div>
+  <div class="ss-card" style="margin:0 16px 16px">`;
+
+  const customChurches = DB.get('customChurches', {});
+  const allCodes = Object.keys(customChurches);
+  if (!allCodes.length) {
+    html += `<div style="padding:14px;text-align:center;color:var(--muted);font-size:13px">등록된 교회가 없어요</div>`;
+  } else {
+    allCodes.forEach(code => {
+      html += `<div class="ss-card-row" style="padding:12px 16px">
+        <div class="ss-card-icon">⛪</div>
+        <div class="ss-card-info">
+          <div class="ss-card-title">${escHtml(customChurches[code])}</div>
+          <div class="ss-card-sub">코드: ${escHtml(code)}</div>
+        </div>
+      </div>`;
+    });
+  }
+  html += `</div>`;
   active.forEach(u => {
     html += `<div class="member-row">
       <div class="member-avatar">${u.isAppAdmin ? '🔑' : '🙏'}</div>
@@ -9419,6 +9692,52 @@ function handlePhotoSelect(event) {
   event.target.value = '';
 }
 
+async function saveAccountEdit() {
+  const newEmail     = document.getElementById('edit-email').value.trim();
+  const newPw        = document.getElementById('edit-pw').value;
+  const currentPw   = document.getElementById('edit-current-pw').value;
+
+  if (!newEmail && !newPw) { toast('변경할 이메일 또는 비밀번호를 입력해 주세요'); return; }
+  if (!currentPw) { toast('현재 비밀번호를 입력해 주세요'); return; }
+  if (newPw && newPw.length < 6) { toast('새 비밀번호는 6자 이상이어야 해요'); return; }
+
+  if (!window._fbReady || !window._fbAuth) { toast('Firebase 연결 필요'); return; }
+
+  try {
+    // Firebase Auth 재인증 (보안 요구사항)
+    const { EmailAuthProvider, reauthenticateWithCredential,
+            updateEmail, updatePassword } =
+      await import('https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js');
+
+    const user       = window._fbAuth.currentUser;
+    const credential = EmailAuthProvider.credential(user.email, currentPw);
+
+    await reauthenticateWithCredential(user, credential);
+
+    if (newEmail && newEmail !== user.email) {
+      await updateEmail(user, newEmail);
+      me.email = newEmail;
+      DB.saveUser(me);
+      if (window._fb) window._fb.updateUser(me.id, { email: newEmail }).catch(()=>{});
+    }
+    if (newPw) {
+      await updatePassword(user, newPw);
+    }
+
+    // 입력 초기화
+    ['edit-email','edit-pw','edit-current-pw'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    toast('✅ 계정 정보가 변경됐어요!');
+  } catch(e) {
+    console.error(e);
+    if (e.code === 'auth/wrong-password') toast('현재 비밀번호가 틀렸어요');
+    else if (e.code === 'auth/email-already-in-use') toast('이미 사용 중인 이메일이에요');
+    else if (e.code === 'auth/requires-recent-login') toast('보안을 위해 다시 로그인 후 시도해 주세요');
+    else toast('변경 실패: ' + (e.message || '다시 시도해 주세요'));
+  }
+}
+
 function saveProfileEdit() {
   const name = document.getElementById('edit-name').value.trim();
   const bio  = document.getElementById('edit-bio').value.trim().slice(0, 50);
@@ -9931,50 +10250,73 @@ function openMemberBinder(userId, userName) {
 
 function renderMemberBinderScreen() {
   if (!_viewingMemberId) return `<div class="ss-empty"><div class="ss-empty-title">교인을 선택해주세요</div></div>`;
-  const today    = todayDateKey();
-  const key      = `binder_${_viewingMemberId}_${today}`;
-  const data     = DB.get(key, {});
+  const today = todayDateKey();
+  // 로딩 상태 → 비동기로 Firestore 읽기
+  setTimeout(() => _loadMemberBinder(_viewingMemberId, _viewingMemberName, today), 80);
+  return `<div id="member-binder-body" style="padding:40px 16px;text-align:center;color:var(--muted)">
+    <div style="font-size:28px;margin-bottom:12px">🔄</div>
+    <div style="font-size:13px">바인더 불러오는 중...</div>
+  </div>`;
+}
+
+async function _loadMemberBinder(userId, userName, date) {
+  const body = document.getElementById('member-binder-body');
+  if (!body) return;
+
+  let data = {};
+
+  // Firestore에서 먼저 읽기
+  try {
+    if (window._fbReady && window._fb) {
+      const snap = await window._fb.getBinderEntry(`${userId}_${date}`);
+      if (snap.exists()) data = snap.data();
+    }
+  } catch(e) {
+    console.warn('Firestore 바인더 로드 실패, localStorage 사용:', e);
+  }
+
+  // Firestore에 없으면 localStorage fallback
+  if (!Object.keys(data).length) {
+    data = DB.get(`binder_${userId}_${date}`, {});
+  }
+
   const qt       = data.qt       || '';
   const diary    = data.diary    || '';
   const schedule = data.schedule || '';
-  const todos    = (data.todos   || []);
+  const todos    = data.todos    || [];
 
-  let html = `
-    <div class="ss-section-title">📅 ${today} · ${escHtml(_viewingMemberName)}님의 오늘 바인더</div>
+  let html = `<div id="member-binder-body">
+    <div class="ss-section-title">📅 ${date} · ${escHtml(userName)}님의 오늘 바인더</div>
     <div class="ss-card">`;
 
   if (!qt && !diary && !schedule && !todos.length) {
-    html += `<div style="padding:24px;text-align:center;color:var(--muted);font-size:14px">
-      오늘 작성된 내용이 없어요</div>`;
+    html += `<div style="padding:24px;text-align:center;color:var(--muted);font-size:14px">오늘 작성된 내용이 없어요</div>`;
   } else {
-    if (qt) html += `
-      <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:8px">📖 오늘의 말씀 (QT)</div>
-        <div style="font-size:14px;color:var(--black);line-height:1.7;white-space:pre-wrap">${escHtml(qt)}</div>
-      </div>`;
-    if (todos.length) html += `
-      <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:8px">✅ 할 일 목록</div>
-        ${todos.map(t => `<div style="font-size:13.5px;color:${t.done?'var(--muted)':'var(--black)'};
-          text-decoration:${t.done?'line-through':'none'};padding:3px 0">
-          ${t.done?'☑':'☐'} ${escHtml(t.text)}</div>`).join('')}
-      </div>`;
-    if (schedule) html += `
-      <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:8px">📅 시간표</div>
-        <div style="font-size:13.5px;color:var(--black);white-space:pre-wrap;line-height:1.7">${escHtml(schedule)}</div>
-      </div>`;
-    if (diary) html += `
-      <div style="padding:14px 16px">
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:8px">✏️ 일기</div>
-        <div style="font-size:14px;color:var(--black);line-height:1.7;white-space:pre-wrap">${escHtml(diary)}</div>
-      </div>`;
+    if (qt) html += `<div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+      <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:8px">📖 오늘의 말씀 (QT)</div>
+      <div style="font-size:14px;color:var(--black);line-height:1.7;white-space:pre-wrap">${escHtml(qt)}</div>
+    </div>`;
+    if (todos.length) html += `<div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+      <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:8px">✅ 할 일 목록</div>
+      ${todos.map(t => `<div style="font-size:13.5px;color:${t.done?'var(--muted)':'var(--black)'};
+        text-decoration:${t.done?'line-through':'none'};padding:3px 0">
+        ${t.done?'☑':'☐'} ${escHtml(t.text)}</div>`).join('')}
+    </div>`;
+    if (schedule) html += `<div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+      <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:8px">📅 시간표</div>
+      <div style="font-size:13.5px;color:var(--black);white-space:pre-wrap;line-height:1.7">${escHtml(schedule)}</div>
+    </div>`;
+    if (diary) html += `<div style="padding:14px 16px">
+      <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:8px">✏️ 일기</div>
+      <div style="font-size:14px;color:var(--black);line-height:1.7;white-space:pre-wrap">${escHtml(diary)}</div>
+    </div>`;
   }
   html += `</div>
     <div style="font-size:11.5px;color:var(--muted);text-align:center;margin:12px 0;line-height:1.6">
       본인이 공유 허용한 내용만 표시돼요<br>텍스트형 바인더만 열람 가능해요
-    </div>`;
-  return html;
+    </div></div>`;
+
+  body.outerHTML = html;
 }
 
 // ── 초대 코드 시스템 ──
