@@ -7380,7 +7380,7 @@ function switchMembersTab(tab) {
 }
 
 // ── 앱 관리자 활성화 ──
-const ADMIN_SECRET = 'SC_MR_JAMES'; // 개발자 전용 코드
+const ADMIN_SECRET = 'MR_JAMES'; // 개발자 전용 코드
 function activateAdminCode() {
   const code = document.getElementById('admin-code-input')?.value.trim();
   if (code !== ADMIN_SECRET) { toast('올바르지 않은 코드예요 🔒'); return; }
